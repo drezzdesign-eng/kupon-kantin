@@ -80,6 +80,22 @@
   .note{font-size:.85rem;color:var(--muted);margin-top:8px}
   .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.78rem;font-weight:700}
   .pill.low{background:#F8DDD7;color:var(--red)} .pill.ok{background:#DDF1E7;color:var(--ok)}
+  /* Pop-up keputusan imbasan / Scan result pop-up */
+  .popup{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px}
+  .popup.ok{background:rgba(35,110,78,.94)} .popup.bad{background:rgba(170,50,32,.94)}
+  .pop-card{background:#fff;border-radius:20px;max-width:380px;width:100%;padding:26px 22px 20px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.4);animation:pop .22s ease-out}
+  @keyframes pop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+  @media (prefers-reduced-motion:reduce){.pop-card{animation:none}}
+  .pop-icon{width:76px;height:76px;border-radius:50%;margin:0 auto 10px;display:grid;place-items:center;font-size:42px;font-weight:900;color:#fff}
+  .popup.ok .pop-icon{background:var(--ok)} .popup.bad .pop-icon{background:var(--red)}
+  .pop-status{margin:0;font-weight:800;text-transform:uppercase;letter-spacing:.06em;font-size:.95rem}
+  .popup.ok .pop-status{color:var(--ok)} .popup.bad .pop-status{color:var(--red)}
+  .pop-card h2{font-size:1.5rem;margin:6px 0 4px}
+  .pop-card p{margin:0;color:var(--muted)}
+  .pop-big{font-size:3.4rem;font-weight:900;line-height:1.1;margin-top:10px}
+  .pop-left{color:var(--muted);margin-bottom:6px}
+  .pop-btns{display:grid;gap:8px;margin-top:18px}
+  .pop-btns .btn{padding:14px 16px;font-size:1.05rem}
   @media (max-width:520px){.row{grid-template-columns:1fr}.stat b{font-size:1.1rem}}
 </style>
 
@@ -209,6 +225,21 @@
   </section>
 </main>
 
+<div id="popup" class="popup ok" hidden role="dialog" aria-modal="true" aria-labelledby="popTitle">
+  <div class="pop-card">
+    <div class="pop-icon" id="popIcon" aria-hidden="true"></div>
+    <p class="pop-status" id="popStatus"></p>
+    <h2 id="popTitle"></h2>
+    <p id="popMsg"></p>
+    <div class="pop-big" id="popBig"></div>
+    <div class="pop-left" id="popLeft"></div>
+    <div class="pop-btns">
+      <button class="btn full" id="btnNext" data-i18n="nextScan"></button>
+      <button class="btn alt full" id="btnDone" data-i18n="doneScan"></button>
+    </div>
+  </div>
+</div>
+
 <script>
 const KUPON_SEBULAN = 10, HARGA = 3, COOLDOWN_SAAT = 60, KEY = "roca-kupon-data", LANG_KEY = "roca-kupon-lang";
 const DEF_STAFF_PW = "1234", DEF_ADMIN_PW = "admin123", DEF_KANTIN_PW = "0000";
@@ -251,6 +282,7 @@ const I18N = {
     aPwShort:"Kata laluan HR mesti sekurang-kurangnya 6 aksara.", aPwDone:"Kata laluan HR ditukar.",
     kPwBad:"PIN kantin mesti 4 hingga 6 digit nombor.", kPwDone:"PIN kantin ditukar.",
     csv:["No. Staff","Nama","Jabatan","Kupon Digunakan","Jumlah (RM)","Baki"], csvFile:"laporan-kupon",
+    scanOk:"Imbasan berjaya", scanFail:"Imbasan gagal", nextScan:"Imbas seterusnya", doneScan:"Selesai",
     locale:"ms-MY", other:"EN"
   },
   en: {
@@ -289,6 +321,7 @@ const I18N = {
     aPwShort:"HR password must be at least 6 characters.", aPwDone:"HR password changed.",
     kPwBad:"Canteen PIN must be 4 to 6 digits.", kPwDone:"Canteen PIN changed.",
     csv:["Staff No.","Name","Department","Coupons Used","Total (RM)","Balance"], csvFile:"coupon-report",
+    scanOk:"Scan successful", scanFail:"Scan failed", nextScan:"Scan next", doneScan:"Done",
     locale:"en-MY", other:"BM"
   }
 };
@@ -384,7 +417,7 @@ $("btnLogin").onclick = async ()=>{
 };
 $("lPw").onkeydown = e=>{ if(e.key==="Enter") $("btnLogin").click(); };
 $("btnLogout").onclick = async ()=>{
-  await stopCam();
+  await stopCam(); closePopup();
   session = null; $("result").innerHTML = "";
   showOnly("login"); $("nav").hidden = true; $("btnLogout").hidden = true; renderHeader();
 };
@@ -417,31 +450,81 @@ function renderHeader(){
 async function tolakKupon(raw){
   if(!session || !["kantin","hr"].includes(session.role)) return;
   const id = raw.trim().toUpperCase().replace(/^ROCAKUPON:/,"");
-  const box = $("result"), now = Date.now();
+  const now = Date.now();
   const s = db.staff.find(x=>x.id===id);
-  if(!s) return show(box,"bad",T("badQr"),T("notFound")(id));
+  if(!s) return result("bad",T("badQr"),T("notFound")(id));
   if(lastScan[id] && now-lastScan[id] < COOLDOWN_SAAT*1000)
-    return show(box,"bad",s.name,T("cooldown")(Math.ceil((COOLDOWN_SAAT*1000-(now-lastScan[id]))/1000)));
-  if(s.baki<=0) return show(box,"bad",s.name,T("empty"));
+    return result("bad",s.name,T("cooldown")(Math.ceil((COOLDOWN_SAAT*1000-(now-lastScan[id]))/1000)));
+  if(s.baki<=0) return result("bad",s.name,T("empty"));
   s.baki--; lastScan[id]=now;
   db.log.push({id:s.id,name:s.name,t:new Date().toISOString(),m:db.month,baki:s.baki});
   await save();
-  show(box,"ok",s.name,T("deducted"),s.baki);
+  result("ok",s.name,T("deducted"),s.baki);
   renderAll();
 }
+function result(type,title,msg,big){
+  show($("result"),type,title,msg,big);
+  openPopup(type,title,msg,big);
+}
+
+/* Pop-up + bunyi + getaran / Pop-up + sound + vibration */
+let actx = null;
+function unlockAudio(){
+  try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==="suspended") actx.resume(); }catch(e){}
+}
+function beep(ok){
+  try{
+    if(actx){
+      const tones = ok ? [[880,0,.13],[1320,.15,.18]] : [[200,0,.55]];
+      tones.forEach(([f,t,d])=>{
+        const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + t;
+        o.type = ok ? "sine" : "square"; o.frequency.value = f;
+        g.gain.setValueAtTime(.3,t0); g.gain.exponentialRampToValueAtTime(.001,t0+d);
+        o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+d);
+      });
+    }
+    if(navigator.vibrate) navigator.vibrate(ok ? 150 : [250,100,250]);
+  }catch(e){}
+}
+function openPopup(type,title,msg,big){
+  const p = $("popup");
+  p.className = "popup "+type;
+  $("popIcon").textContent = type==="ok" ? "✓" : "✕";
+  $("popStatus").textContent = type==="ok" ? T("scanOk") : T("scanFail");
+  $("popTitle").textContent = title;
+  $("popMsg").textContent = msg;
+  $("popBig").textContent = big!==undefined ? big : "";
+  $("popLeft").textContent = big!==undefined ? T("left") : "";
+  p.hidden = false;
+  beep(type==="ok");
+  $("btnNext").focus();
+}
+function closePopup(){ $("popup").hidden = true; }
+$("btnNext").onclick = ()=>{ unlockAudio(); closePopup(); startCam(); };
+$("btnDone").onclick = ()=>{ closePopup(); };
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("popup").hidden) closePopup(); });
 function show(box,type,title,msg,big){
   box.innerHTML = `<div class="result ${type}"><b>${esc(title)}</b><div>${esc(msg)}</div>${big!==undefined?`<div class="big">${big}</div><div>${esc(T("left"))}</div>`:""}</div>`;
 }
-$("btnManual").onclick = ()=>{ const v=$("manualId"); if(v.value) tolakKupon(v.value); v.value=""; };
+$("btnManual").onclick = ()=>{ unlockAudio(); const v=$("manualId"); if(v.value) tolakKupon(v.value); v.value=""; };
 $("manualId").onkeydown = e=>{ if(e.key==="Enter") $("btnManual").click(); };
-$("btnCam").onclick = async ()=>{
+let scanBusy = false;
+async function startCam(){
   if(typeof Html5Qrcode==="undefined") return show($("result"),"bad",T("camNA"),T("camNAmsg"));
-  scanner = new Html5Qrcode("reader");
+  if(scanner) return;
+  $("result").innerHTML = "";
+  scanner = new Html5Qrcode("reader"); scanBusy = false;
   try{
-    await scanner.start({facingMode:"environment"},{fps:10,qrbox:220}, txt=>tolakKupon(txt));
+    await scanner.start({facingMode:"environment"},{fps:10,qrbox:220}, async txt=>{
+      if(scanBusy) return;          // elak imbasan berganda / avoid double scan
+      scanBusy = true;
+      await stopCam();              // kamera tutup automatik / camera turns off
+      await tolakKupon(txt);
+    });
     $("btnCam").hidden=true; $("btnCamStop").hidden=false;
   }catch(e){ scanner=null; show($("result"),"bad",T("camFail"),T("camFailMsg")); }
-};
+}
+$("btnCam").onclick = ()=>{ unlockAudio(); startCam(); };
 async function stopCam(){ if(scanner){ try{ await scanner.stop(); }catch(e){} scanner=null; } $("btnCam").hidden=false; $("btnCamStop").hidden=true; }
 $("btnCamStop").onclick = stopCam;
 
