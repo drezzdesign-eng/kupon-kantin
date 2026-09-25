@@ -1,4 +1,4 @@
-<!-- ROCA — Sistem Kupon Kantin / Canteen Coupon System (Google Sheets) -->
+<!-- ROCA — Sistem Kupon Kantin / Canteen Coupon System (v2: Baki RM / RM wallet) -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
@@ -105,7 +105,37 @@
   #busy{position:fixed;top:0;left:0;right:0;height:4px;z-index:60;background:linear-gradient(90deg,transparent,var(--led),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:slide 1s linear infinite}
   @keyframes slide{from{background-position:-40% 0}to{background-position:140% 0}}
   #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:70;background:#1B2226;color:#fff;padding:12px 18px;border-radius:10px;max-width:90%;box-shadow:0 8px 24px rgba(0,0,0,.4);font-weight:600;text-align:center}
-  .btn:disabled{opacity:.5;cursor:wait}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  /* Baki RM / RM wallet */
+  .wallet{padding:18px 18px 10px}
+  .w-amt{font-size:2.4rem;font-weight:900;line-height:1.1}
+  .w-bar{height:14px;border-radius:99px;background:#E3E8E6;overflow:hidden;margin:10px 0 6px}
+  .w-bar span{display:block;height:100%;background:var(--mustard);border-radius:99px;transition:width .4s}
+  .w-bar span.low{background:var(--red)}
+  .w-sub{color:var(--muted);font-size:.88rem}
+  .tag-cash{display:inline-block;margin-top:2px;font-size:.72rem;font-weight:700;color:#8A5A00;background:#FFF1C7;border-radius:6px;padding:1px 6px}
+  /* Popup tunai / cash popup */
+  .popup.cash{background:rgba(196,120,0,.95)}
+  .popup.cash .pop-icon{background:#C47800;font-size:26px}
+  .popup.cash .pop-status{color:#A06200}
+  .popup.cash .pop-big{color:var(--red)}
+  /* Masukkan harga / price entry */
+  .popup.chg{background:rgba(18,26,38,.9);align-items:start;overflow:auto}
+  .popup.chg .pop-card{margin-top:4vh;text-align:left}
+  .popup.chg .pop-status{color:var(--green)}
+  .popup.chg h2{margin:4px 0 2px}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .price-wrap{display:flex;align-items:center;gap:8px;margin-top:12px;border:2px solid var(--green);border-radius:12px;padding:6px 12px}
+  .price-wrap span{font-size:1.4rem;font-weight:800;color:var(--muted)}
+  .price-wrap input{border:0;font-size:2rem;font-weight:800;padding:6px 0;outline:none}
+  .quick{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+  .quick button{border:1.5px solid var(--line);background:#F4F7FA;border-radius:8px;padding:10px 0;font-weight:700;font-size:1rem;cursor:pointer;color:var(--ink)}
+  .quick button:active{background:#E3ECFA}
+  .pv{border-radius:10px;padding:10px 12px;margin-top:10px;font-size:.92rem}
+  .pv.ok{background:#DDF1E7;color:#1E5C42}
+  .pv.bad{background:#F8DDD7;color:#8C2A1B}
+  .pv.bad b{font-size:1.5rem}
+  .pv.warn{background:#FFF4D1;color:#6E5200}
 </style>
 
 <div id="busy" hidden></div>
@@ -159,7 +189,7 @@
     </div>
     <div class="panel">
       <h2 data-i18n="todayTitle"></h2>
-      <table><thead><tr><th data-i18n="thTime"></th><th data-i18n="thStaff"></th><th class="num" data-i18n="thBal"></th></tr></thead><tbody id="todayLog"></tbody></table>
+      <table><thead><tr><th data-i18n="thTime"></th><th data-i18n="thStaff"></th><th class="num" data-i18n="thPrice"></th><th class="num" data-i18n="thBal"></th></tr></thead><tbody id="todayLog"></tbody></table>
     </div>
   </section>
 
@@ -174,12 +204,12 @@
         <div id="qrBox"></div>
         <div class="who"><b id="tName"></b><span id="tInfo"></span></div>
       </div>
-      <div class="stubs" id="stubs"></div>
+      <div class="wallet"><div class="w-amt" id="wAmt"></div><div class="w-bar"><span id="wBar"></span></div><div class="w-sub" id="wSub"></div></div>
       <div class="baki" id="tBaki"></div>
     </div>
     <div class="panel">
       <h2 data-i18n="histTitle"></h2>
-      <table><thead><tr><th data-i18n="thDate"></th><th data-i18n="thTime"></th><th class="num" data-i18n="thBal"></th></tr></thead><tbody id="histLog"></tbody></table>
+      <table><thead><tr><th data-i18n="thDate"></th><th data-i18n="thTime"></th><th class="num" data-i18n="thPrice"></th><th class="num" data-i18n="thBal"></th></tr></thead><tbody id="histLog"></tbody></table>
     </div>
     <div class="panel" id="pwPanel">
       <h2 data-i18n="pwTitle"></h2>
@@ -195,8 +225,8 @@
 
   <section id="tab-hr" hidden>
     <div class="stats">
-      <div class="stat"><b id="sUsed">0</b><span data-i18n="statUsed"></span></div>
-      <div class="stat"><b id="sRM">RM0</b><span data-i18n="statRM"></span></div>
+      <div class="stat"><b id="sUsed">RM0.00</b><span data-i18n="statUsed"></span></div>
+      <div class="stat"><b id="sRM">RM0.00</b><span data-i18n="statRM"></span></div>
       <div class="stat"><b id="sStaff">0</b><span data-i18n="statStaff"></span></div>
     </div>
     <div class="panel">
@@ -214,7 +244,7 @@
     </div>
     <div class="panel">
       <h2 data-i18n="balTitle"></h2>
-      <table><thead><tr><th data-i18n="thNo"></th><th data-i18n="name"></th><th class="num" data-i18n="thUsed"></th><th class="num" data-i18n="thBal"></th><th></th></tr></thead><tbody id="staffTable"></tbody></table>
+      <table><thead><tr><th data-i18n="thNo"></th><th data-i18n="name"></th><th class="num" data-i18n="thUsedRM"></th><th class="num" data-i18n="thBalRM"></th><th></th></tr></thead><tbody id="staffTable"></tbody></table>
       <div class="actions" style="margin-top:14px">
         <button class="btn alt" id="btnCsv" data-i18n="csvBtn"></button>
         <button class="btn warn" id="btnReset" data-i18n="resetAllBtn"></button>
@@ -236,6 +266,22 @@
   </section>
 </main>
 
+<div id="charge" class="popup chg" hidden role="dialog" aria-modal="true" aria-labelledby="cName">
+  <div class="pop-card">
+    <p class="pop-status" data-i18n="chargeTitle"></p>
+    <h2 id="cName"></h2>
+    <p id="cBal"></p>
+    <label for="cPrice" class="sr" data-i18n="priceLabel"></label>
+    <div class="price-wrap"><span>RM</span><input id="cPrice" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+    <div class="quick" id="cQuick"></div>
+    <div id="cPreview"></div>
+    <div class="pop-btns">
+      <button class="btn full" id="btnCharge" disabled></button>
+      <button class="btn alt full" id="btnCancel" data-i18n="cancel"></button>
+    </div>
+  </div>
+</div>
+
 <div id="popup" class="popup ok" hidden role="dialog" aria-modal="true" aria-labelledby="popTitle">
   <div class="pop-card">
     <div class="pop-icon" id="popIcon" aria-hidden="true"></div>
@@ -256,10 +302,12 @@
    TETAPAN — tampal URL Web App Google Apps Script di antara tanda " "
    SETTINGS — paste your Google Apps Script Web App URL between the " "
    ===================================================================== */
-const API_URL = "https://script.google.com/macros/s/AKfycbyCV2JALhY1Ryt1tBdKJCGDk8o3pSbA0NT8JhOjQs3PWCDlW86x1c_1VujXqQSbwKR6/exec";
+const API_URL = "TAMPAL_URL_WEB_APP_DI_SINI";
 
 const SESSION_KEY = "roca-kupon-session", LANG_KEY = "roca-kupon-lang";
-let HARGA = 3, KUPON_SEBULAN = 10;
+let ALLOC = 30, PMIN = 0.1, PMAX = 50;
+const QUICK = [3, 3.5, 4, 4.5, 5, 6];
+const rm = n => "RM" + Number(n||0).toFixed(2);
 
 /* ---------- Dwibahasa / Bilingual ---------- */
 const I18N = {
@@ -303,6 +351,23 @@ const I18N = {
     processing:"Sedang diproses…",
     netErr:"Tiada sambungan internet. Cuba lagi.", noApi:"Sistem belum disambung ke Google Sheets (API_URL belum diisi).",
     sessionExp:"Sesi tamat. Sila log masuk semula.", serverErr:"Ralat pada server. Cuba lagi.", forbidden:"Tiada kebenaran.",
+
+    deduct:"Teruskan", camHint:"Jika kamera tak dapat dibuka, masukkan no. staff secara manual di bawah.",
+    thPrice:"Harga", thUsedRM:"Guna (RM)", thBalRM:"Baki (RM)",
+    statUsed:"Perlu dibayar ke kantin", statRM:"Tunai dibayar staff", statStaff:"Staff berdaftar",
+    resetAllBtn:"Reset semua ke RM30",
+    resetNote:"Baki di-reset automatik ke RM30 pada awal setiap bulan. Baki yang tidak digunakan tidak dibawa ke bulan seterusnya.",
+    chargeTitle:"Masukkan harga makanan", priceLabel:"Harga (RM)", cancel:"Batal",
+    curBal:b=>`Baki semasa: ${b}`, afterBal:b=>`Baki selepas ini: ${b}`,
+    shortMsg:(d,c)=>`Baki tidak cukup. ${d} ditolak dari baki, staff perlu bayar tunai ${c}.`,
+    recentMsg:(h,s)=>`Amaran: staff ini baru dicaj ${h}, ${s} saat lalu. Pastikan ini bukan caj berulang.`,
+    btnConfirm:h=>`Sahkan & tolak ${h}`, btnConfirmCash:c=>`Sahkan & kutip tunai ${c}`, btnAnyway:"Teruskan juga",
+    badPrice:(a,b)=>`Masukkan harga antara ${a} dan ${b}.`,
+    okMsg:h=>`${h} ditolak.`, balLeft:"baki", cashStatus:"Kutip tunai",
+    cashMsg:(d,c)=>`Baki tidak cukup. ${d} ditolak dari baki. Kutip tunai ${c} daripada staff.`, cashLeft:"Baki: RM0.00",
+    walletOf:(a,m)=>`Peruntukan ${a} untuk ${m}`, bal:(n,m)=>`Baki ${n} untuk ${m}`, cashTag:c=>`tunai ${c}`,
+    addDone:n=>`${n} ditambah dengan baki RM30. Kata laluan asal: 1234.`, cResetAll:"Reset baki semua staff ke RM30?",
+    csv:["No. Staff","Nama","Jabatan","Digunakan (RM)","Baki (RM)"], empty:"Baki RM0.00. Staff perlu bayar tunai sepenuhnya.",
     locale:"ms-MY", other:"EN"
   },
   en: {
@@ -345,6 +410,23 @@ const I18N = {
     processing:"Processing…",
     netErr:"No internet connection. Please try again.", noApi:"System is not connected to Google Sheets yet (API_URL not set).",
     sessionExp:"Session expired. Please log in again.", serverErr:"Server error. Please try again.", forbidden:"Not allowed.",
+
+    deduct:"Continue", camHint:"If the camera cannot open, enter the staff no. manually below.",
+    thPrice:"Price", thUsedRM:"Used (RM)", thBalRM:"Balance (RM)",
+    statUsed:"Payable to canteen", statRM:"Cash paid by staff", statStaff:"Registered staff",
+    resetAllBtn:"Reset all to RM30",
+    resetNote:"Balances reset automatically to RM30 at the start of every month. Unused balance does not carry over.",
+    chargeTitle:"Enter meal price", priceLabel:"Price (RM)", cancel:"Cancel",
+    curBal:b=>`Current balance: ${b}`, afterBal:b=>`Balance after this: ${b}`,
+    shortMsg:(d,c)=>`Not enough balance. ${d} will be deducted, staff must pay ${c} in cash.`,
+    recentMsg:(h,s)=>`Warning: this staff member was just charged ${h}, ${s} seconds ago. Make sure this is not a repeat charge.`,
+    btnConfirm:h=>`Confirm & deduct ${h}`, btnConfirmCash:c=>`Confirm & collect ${c} cash`, btnAnyway:"Continue anyway",
+    badPrice:(a,b)=>`Enter a price between ${a} and ${b}.`,
+    okMsg:h=>`${h} deducted.`, balLeft:"balance", cashStatus:"Collect cash",
+    cashMsg:(d,c)=>`Not enough balance. ${d} deducted from balance. Collect ${c} cash from staff.`, cashLeft:"Balance: RM0.00",
+    walletOf:(a,m)=>`Allowance ${a} for ${m}`, bal:(n,m)=>`Balance ${n} for ${m}`, cashTag:c=>`cash ${c}`,
+    addDone:n=>`${n} added with RM30 balance. Default password: 1234.`, cResetAll:"Reset all staff balances to RM30?",
+    csv:["Staff No.","Name","Department","Used (RM)","Balance (RM)"], empty:"Balance RM0.00. Staff must pay fully in cash.",
     locale:"en-MY", other:"BM"
   }
 };
@@ -378,7 +460,7 @@ async function api(action, data={}){
 }
 function errText(code){
   const m = {net:"netErr",noApi:"noApi",auth:"sessionExp",pwWrong:"pwWrong",pwShort:"pwShort",need:"addNeed",
-             aPwShort:"aPwShort",kPwBad:"kPwBad",forbidden:"forbidden"};
+             aPwShort:"aPwShort",kPwBad:"kPwBad",forbidden:"forbidden",badPrice:"serverErr"};
   return T(m[code] || "serverErr");
 }
 let busyN = 0;
@@ -427,7 +509,7 @@ $("lPw").onkeydown = e=>{ if(e.key==="Enter") $("btnLogin").click(); };
 $("btnLogout").onclick = ()=>forceLogout();
 
 async function forceLogout(){
-  await stopCam(); closePopup();
+  await stopCam(); closePopup(); $("charge").hidden = true; cur = null;
   session = null; st = {}; card = null; store.set(SESSION_KEY, null);
   $("result").innerHTML = ""; $("nav").hidden = true; $("btnLogout").hidden = true;
   showOnly("login"); renderHeader();
@@ -454,7 +536,7 @@ async function refresh(){
   if(!session) return;
   const j = await api("state");
   if(!j.ok) throw j;
-  st = j; HARGA = j.harga || HARGA; KUPON_SEBULAN = j.kupon || KUPON_SEBULAN;
+  st = j; ALLOC = j.alloc || ALLOC; PMIN = j.min || PMIN; PMAX = j.max || PMAX;
   renderHeader(); renderLists();
   if(session.role!=="kantin") await loadCard();
 }
@@ -479,18 +561,17 @@ function renderLists(){
   if(!session) return;
   const today = st.today || [];
   $("todayLog").innerHTML = today.map(l=>
-    `<tr><td>${fTime(l.t)}</td><td>${esc(l.name)}</td><td class="num">${l.baki}</td></tr>`
-  ).join("") || `<tr><td colspan="3" class="note">${esc(T("noToday"))}</td></tr>`;
+    `<tr><td>${fTime(l.t)}</td><td>${esc(l.name)}${l.tunai>0?`<br><span class="tag-cash">${esc(T("cashTag")(rm(l.tunai)))}</span>`:""}</td><td class="num">${rm(l.harga)}</td><td class="num">${rm(l.baki)}</td></tr>`
+  ).join("") || `<tr><td colspan="4" class="note">${esc(T("noToday"))}</td></tr>`;
 
   if(session.role==="hr"){
     const staff = st.staff || [], sel = $("pickStaff"), cur = sel.value;
     sel.innerHTML = staff.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.id)})</option>`).join("");
     if(cur && staff.some(s=>s.id===cur)) sel.value = cur;
-    const used = st.used || 0;
-    $("sUsed").textContent = used; $("sRM").textContent = "RM"+(used*HARGA); $("sStaff").textContent = staff.length;
+    $("sUsed").textContent = rm(st.deducted); $("sRM").textContent = rm(st.cash); $("sStaff").textContent = staff.length;
     $("staffTable").innerHTML = staff.map(s=>
-      `<tr><td>${esc(s.id)}</td><td>${esc(s.name)}<br><span class="note">${esc(s.dept)}</span></td><td class="num">${KUPON_SEBULAN-s.baki}</td>
-       <td class="num"><span class="pill ${s.baki<=2?"low":"ok"}">${s.baki}</span></td>
+      `<tr><td>${esc(s.id)}</td><td>${esc(s.name)}<br><span class="note">${esc(s.dept)}</span></td><td class="num">${(ALLOC-s.baki).toFixed(2)}</td>
+       <td class="num"><span class="pill ${s.baki<5?"low":"ok"}">${Number(s.baki).toFixed(2)}</span></td>
        <td class="num"><div class="actions" style="justify-content:flex-end;margin:0">
          <button class="btn alt sm" data-resetpw="${esc(s.id)}">${esc(T("resetPw"))}</button>
          <button class="btn warn sm" data-del="${esc(s.id)}">${esc(T("del"))}</button></div></td></tr>`
@@ -499,45 +580,109 @@ function renderLists(){
 }
 function renderTicket(){
   const q = $("qrBox"); q.innerHTML = "";
-  if(!card){ $("tName").textContent = ""; $("tInfo").textContent = ""; $("stubs").innerHTML = ""; $("tBaki").textContent = ""; $("histLog").innerHTML = ""; $("defBanner").hidden = true; return; }
-  const s = card;
+  if(!card){ $("tName").textContent = ""; $("tInfo").textContent = ""; $("wAmt").textContent = ""; $("wBar").style.width = "0"; $("wSub").textContent = ""; $("tBaki").textContent = ""; $("histLog").innerHTML = ""; $("defBanner").hidden = true; return; }
+  const s = card, a = s.alloc || ALLOC;
   $("tName").textContent = s.name; $("tInfo").textContent = `${s.id} · ${s.dept}`;
   if(typeof QRCode!=="undefined") new QRCode(q,{text:"ROCAKUPON:"+s.id,width:120,height:120});
   else q.textContent = s.id;
-  const used = KUPON_SEBULAN - s.baki;
-  $("stubs").innerHTML = Array.from({length:KUPON_SEBULAN},(_,i)=>
-    `<div class="stub ${i<used?"used":""}">${i<used?"":"RM"+HARGA}</div>`).join("");
-  $("tBaki").textContent = T("bal")(s.baki, namaBulan(st.month || bulanIni()));
+  $("wAmt").textContent = rm(s.baki);
+  $("wBar").style.width = Math.max(0,Math.min(100, s.baki/a*100))+"%";
+  $("wBar").className = s.baki < 5 ? "low" : "";
+  $("wSub").textContent = T("walletOf")(rm(a), namaBulan(st.month || bulanIni()));
+  $("tBaki").textContent = "";
   $("histLog").innerHTML = (s.history||[]).map(l=>
-    `<tr><td>${fDate(l.t)}</td><td>${fTime(l.t)}</td><td class="num">${l.baki}</td></tr>`
-  ).join("") || `<tr><td colspan="3" class="note">${esc(T("noHist"))}</td></tr>`;
+    `<tr><td>${fDate(l.t)}</td><td>${fTime(l.t)}</td><td class="num">${rm(l.harga)}${l.tunai>0?`<br><span class="tag-cash">${esc(T("cashTag")(rm(l.tunai)))}</span>`:""}</td><td class="num">${rm(l.baki)}</td></tr>`
+  ).join("") || `<tr><td colspan="4" class="note">${esc(T("noHist"))}</td></tr>`;
   $("defBanner").hidden = !(session && session.role==="staff" && s.def);
 }
 
 /* ---------- Tolak kupon / Use coupon ---------- */
+let cur = null;   // staff sedang dicaj / staff being charged
 async function tolakKupon(raw){
   if(!session || !["kantin","hr"].includes(session.role)) return;
   const id = raw.trim().toUpperCase().replace(/^ROCAKUPON:/,"");
   openPopup("wait", T("processing"), id);
   try{
-    const j = await api("deduct",{id});
-    if(j.ok) result("ok", j.name, T("deducted")(), j.baki);
-    else if(j.code==="notfound") result("bad", T("badQr"), T("notFound")(id));
-    else if(j.code==="cooldown") result("bad", j.name, T("cooldown")(j.wait));
-    else if(j.code==="empty") result("bad", j.name, T("empty"));
-    else result("bad", T("scanFail"), errText(j.code));
-    refresh().catch(()=>{});
+    const j = await api("lookup",{id});
+    if(!j.ok){ result("bad", T("badQr"), T("notFound")(id)); return; }
+    closePopup();
+    cur = {id:j.id, name:j.name, baki:j.baki, force:false, recent:(j.last && j.last.ago < 60) ? j.last : null};
+    openCharge();
   }catch(e){
     if(e && e.code==="auth"){ closePopup(); toast(T("sessionExp")); }
     else result("bad", T("scanFail"), errText(e && e.code));
   }
 }
-function result(type,title,msg,big){
-  show($("result"),type,title,msg,big);
-  openPopup(type,title,msg,big);
+function openCharge(){
+  $("cName").textContent = cur.name;
+  $("cBal").textContent = T("curBal")(rm(cur.baki));
+  $("cPrice").value = "";
+  $("cQuick").innerHTML = QUICK.map(v=>`<button type="button" data-p="${v}">${v.toFixed(2)}</button>`).join("");
+  if(cur.recent) cur.force = true;
+  $("charge").hidden = false;
+  updatePreview();
+  setTimeout(()=>$("cPrice").focus(), 50);
 }
-function show(box,type,title,msg,big){
-  box.innerHTML = `<div class="result ${type}"><b>${esc(title)}</b><div>${esc(msg)}</div>${big!==undefined?`<div class="big">${big}</div><div>${esc(T("left"))}</div>`:""}</div>`;
+function priceVal(){
+  const v = $("cPrice").value.trim().replace(",",".");
+  if(!/^\d+(\.\d{1,2})?$/.test(v)) return null;
+  const n = Math.round(parseFloat(v)*100)/100;
+  return (n >= PMIN && n <= PMAX) ? n : null;
+}
+function updatePreview(){
+  const p = priceVal(), box = $("cPreview"), btn = $("btnCharge");
+  let html = "";
+  if(cur.recent) html += `<div class="pv warn">⚠ ${esc(T("recentMsg")(rm(cur.recent.harga), cur.recent.ago))}</div>`;
+  if(cur.baki <= 0) html += `<div class="pv bad">${esc(T("empty"))}</div>`;
+  if(p===null){
+    if($("cPrice").value.trim()) html += `<div class="pv bad">${esc(T("badPrice")(rm(PMIN), rm(PMAX)))}</div>`;
+    btn.disabled = true; btn.textContent = T("btnConfirm")("");
+  } else {
+    const d = Math.min(cur.baki, p), c = Math.round((p-d)*100)/100;
+    if(c > 0){
+      html += `<div class="pv bad"><b>-${rm(c)}</b><br>${esc(T("shortMsg")(rm(d), rm(c)))}</div>`;
+      btn.textContent = T("btnConfirmCash")(rm(c));
+    } else {
+      html += `<div class="pv ok">${esc(T("afterBal")(rm(Math.round((cur.baki-p)*100)/100)))}</div>`;
+      btn.textContent = T("btnConfirm")(rm(p));
+    }
+    btn.disabled = false;
+  }
+  box.innerHTML = html;
+}
+$("cPrice").oninput = updatePreview;
+$("cPrice").onkeydown = e=>{ if(e.key==="Enter" && !$("btnCharge").disabled) $("btnCharge").click(); };
+$("cQuick").onclick = e=>{ const v = e.target.dataset.p; if(v){ $("cPrice").value = Number(v).toFixed(2); updatePreview(); } };
+$("btnCancel").onclick = ()=>{ $("charge").hidden = true; cur = null; };
+$("btnCharge").onclick = async ()=>{
+  const p = priceVal(); if(p===null || !cur) return;
+  const short = p > cur.baki;
+  $("charge").hidden = true;
+  openPopup("wait", T("processing"), cur.name);
+  try{
+    const j = await api("charge",{id:cur.id, harga:p, force:cur.force, allowShort:short});
+    if(j.ok){
+      if(j.tunai > 0) result("cash", j.name, T("cashMsg")(rm(j.ditolak), rm(j.tunai)), "-"+rm(j.tunai), T("cashLeft"));
+      else result("ok", j.name, T("okMsg")(rm(j.harga)), rm(j.baki), T("balLeft"));
+      cur = null; refresh().catch(()=>{});
+    } else if(j.code==="recent"){
+      closePopup(); cur.recent = j.last; openCharge(); $("cPrice").value = p.toFixed(2); updatePreview(); $("btnCharge").textContent = T("btnAnyway");
+    } else if(j.code==="short"){
+      closePopup(); cur.baki = j.baki; openCharge(); $("cPrice").value = p.toFixed(2); updatePreview();
+    } else if(j.code==="notfound") result("bad", T("badQr"), T("notFound")(cur.id));
+    else if(j.code==="badPrice"){ closePopup(); openCharge(); }
+    else result("bad", T("scanFail"), errText(j.code));
+  }catch(e){
+    if(e && e.code==="auth"){ closePopup(); toast(T("sessionExp")); }
+    else result("bad", T("scanFail"), errText(e && e.code));
+  }
+};
+function result(type,title,msg,big,left){
+  show($("result"),type==="cash"?"bad":type,title,msg,big,left);
+  openPopup(type,title,msg,big,left);
+}
+function show(box,type,title,msg,big,left){
+  box.innerHTML = `<div class="result ${type}"><b>${esc(title)}</b><div>${esc(msg)}</div>${big!==undefined?`<div class="big">${esc(big)}</div><div>${esc(left||"")}</div>`:""}</div>`;
 }
 $("btnManual").onclick = ()=>{ unlockAudio(); const v=$("manualId"); if(v.value.trim()) tolakKupon(v.value); v.value=""; };
 $("manualId").onkeydown = e=>{ if(e.key==="Enter") $("btnManual").click(); };
@@ -547,10 +692,11 @@ let actx = null;
 function unlockAudio(){
   try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==="suspended") actx.resume(); }catch(e){}
 }
-function beep(ok){
+function beep(type){
+  const ok = type==="ok";
   try{
     if(actx){
-      const tones = ok ? [[880,0,.13],[1320,.15,.18]] : [[200,0,.55]];
+      const tones = ok ? [[880,0,.13],[1320,.15,.18]] : type==="cash" ? [[660,0,.18],[440,.22,.18],[660,.44,.25]] : [[200,0,.55]];
       tones.forEach(([f,t,d])=>{
         const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + t;
         o.type = ok ? "sine" : "square"; o.frequency.value = f;
@@ -558,25 +704,29 @@ function beep(ok){
         o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+d);
       });
     }
-    if(navigator.vibrate) navigator.vibrate(ok ? 150 : [250,100,250]);
+    if(navigator.vibrate) navigator.vibrate(ok ? 150 : type==="cash" ? [150,80,150,80,300] : [250,100,250]);
   }catch(e){}
 }
-function openPopup(type,title,msg,big){
+function openPopup(type,title,msg,big,left){
   const p = $("popup");
   p.className = "popup "+type;
-  $("popIcon").textContent = type==="ok" ? "✓" : type==="bad" ? "✕" : "";
-  $("popStatus").textContent = type==="ok" ? T("scanOk") : type==="bad" ? T("scanFail") : "";
+  $("popIcon").textContent = type==="ok" ? "✓" : type==="bad" ? "✕" : type==="cash" ? "RM" : "";
+  $("popStatus").textContent = type==="ok" ? T("scanOk") : type==="bad" ? T("scanFail") : type==="cash" ? T("cashStatus") : "";
   $("popTitle").textContent = title;
   $("popMsg").textContent = msg || "";
   $("popBig").textContent = big!==undefined ? big : "";
-  $("popLeft").textContent = big!==undefined ? T("left") : "";
+  $("popLeft").textContent = left || "";
   p.hidden = false;
-  if(type!=="wait"){ beep(type==="ok"); $("btnNext").focus(); }
+  if(type!=="wait"){ beep(type); $("btnNext").focus(); }
 }
 function closePopup(){ $("popup").hidden = true; }
 $("btnNext").onclick = ()=>{ unlockAudio(); closePopup(); startCam(); };
 $("btnDone").onclick = ()=>closePopup();
-document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("popup").hidden && !$("popup").classList.contains("wait")) closePopup(); });
+document.addEventListener("keydown",e=>{
+  if(e.key!=="Escape") return;
+  if(!$("charge").hidden){ $("btnCancel").click(); return; }
+  if(!$("popup").hidden && !$("popup").classList.contains("wait")) closePopup();
+});
 
 /* Kamera / Camera */
 let scanBusy = false;
@@ -648,7 +798,7 @@ $("btnKPw").onclick = ()=>run(async ()=>{
   $("kPw").value=""; m.className="err okmsg"; m.textContent = T("kPwDone");
 }, $("btnKPw"));
 $("btnCsv").onclick = ()=>{
-  const rows = [T("csv")].concat((st.staff||[]).map(s=>[s.id,s.name,s.dept,KUPON_SEBULAN-s.baki,(KUPON_SEBULAN-s.baki)*HARGA,s.baki]));
+  const rows = [T("csv")].concat((st.staff||[]).map(s=>[s.id,s.name,s.dept,(ALLOC-s.baki).toFixed(2),Number(s.baki).toFixed(2)]));
   const csv = "\uFEFF" + rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
