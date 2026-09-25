@@ -1,4 +1,4 @@
-<!-- ROCA — Sistem Kupon Kantin / Canteen Coupon System -->
+<!-- ROCA — Sistem Kupon Kantin / Canteen Coupon System (Google Sheets) -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
@@ -97,8 +97,19 @@
   .pop-btns{display:grid;gap:8px;margin-top:18px}
   .pop-btns .btn{padding:14px 16px;font-size:1.05rem}
   @media (max-width:520px){.row{grid-template-columns:1fr}.stat b{font-size:1.1rem}}
+
+  .popup.wait{background:rgba(18,26,38,.92)}
+  .popup.wait .pop-icon{background:transparent;border:7px solid #D8E3F5;border-top-color:var(--green);animation:spin .9s linear infinite}
+  .popup.wait .pop-btns{display:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #busy{position:fixed;top:0;left:0;right:0;height:4px;z-index:60;background:linear-gradient(90deg,transparent,var(--led),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:slide 1s linear infinite}
+  @keyframes slide{from{background-position:-40% 0}to{background-position:140% 0}}
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:70;background:#1B2226;color:#fff;padding:12px 18px;border-radius:10px;max-width:90%;box-shadow:0 8px 24px rgba(0,0,0,.4);font-weight:600;text-align:center}
+  .btn:disabled{opacity:.5;cursor:wait}
 </style>
 
+<div id="busy" hidden></div>
+<div id="toast" hidden role="status"></div>
 <header>
   <div class="hero" role="img" aria-label="Roca">
     <div class="hero-text"><h1>ROCA</h1><p class="sub" data-i18n="appName"></p></div>
@@ -128,7 +139,6 @@
       <div class="field"><label for="lPw" id="lPwLabel"></label><input id="lPw" type="password" autocomplete="current-password"></div>
       <button class="btn full" id="btnLogin" data-i18n="loginBtn"></button>
       <p class="err" id="loginErr"></p>
-      <p class="note" data-i18n-html="demo"></p>
     </div>
   </section>
 
@@ -200,6 +210,7 @@
         <div style="align-self:end"><button class="btn full" id="btnAdd" data-i18n="addBtn"></button></div>
       </div>
       <p class="note" id="addMsg"></p>
+      <p class="note" data-i18n="bulkNote"></p>
     </div>
     <div class="panel">
       <h2 data-i18n="balTitle"></h2>
@@ -241,8 +252,14 @@
 </div>
 
 <script>
-const KUPON_SEBULAN = 10, HARGA = 3, COOLDOWN_SAAT = 60, KEY = "roca-kupon-data", LANG_KEY = "roca-kupon-lang";
-const DEF_STAFF_PW = "1234", DEF_ADMIN_PW = "admin123", DEF_KANTIN_PW = "0000";
+/* =====================================================================
+   TETAPAN — tampal URL Web App Google Apps Script di antara tanda " "
+   SETTINGS — paste your Google Apps Script Web App URL between the " "
+   ===================================================================== */
+const API_URL = "TAMPAL_URL_WEB_APP_DI_SINI";
+
+const SESSION_KEY = "roca-kupon-session", LANG_KEY = "roca-kupon-lang";
+let HARGA = 3, KUPON_SEBULAN = 10;
 
 /* ---------- Dwibahasa / Bilingual ---------- */
 const I18N = {
@@ -250,7 +267,6 @@ const I18N = {
     appName:"Sistem Kupon Kantin", logout:"Log keluar", tabHr:"HR", tabKantin:"Kantin", tabStaff:"Kad staff",
     loginTitle:"Log masuk", roleStaff:"Staff", roleKantin:"Kantin", roleHr:"HR", staffNo:"No. staff",
     pw:"Kata laluan", pinKantin:"PIN kantin", pwHr:"Kata laluan HR", loginBtn:"Log masuk",
-    demo:"Demo: staff <b>RC001</b> / <b>1234</b>, kantin PIN <b>0000</b>, HR <b>admin123</b>.",
     scanTitle:"Imbas kupon staff", camOpen:"Buka kamera", camClose:"Tutup kamera",
     camHint:"Jika kamera tak dapat dibuka, masukkan no. staff secara manual di bawah.", deduct:"Tolak kupon",
     todayTitle:"Transaksi hari ini", thTime:"Masa", thStaff:"Staff", thBal:"Baki", thDate:"Tarikh", thNo:"No.", thUsed:"Guna",
@@ -261,13 +277,14 @@ const I18N = {
     addTitle:"Tambah staff", name:"Nama", dept:"Jabatan", addBtn:"Tambah staff", balTitle:"Baki staff bulan ini",
     csvBtn:"Muat turun laporan (CSV)", resetAllBtn:"Reset semua ke 10 kupon",
     resetNote:"Baki di-reset automatik ke 10 kupon pada awal setiap bulan. Kupon tak digunakan tidak dibawa ke bulan seterusnya.",
+    bulkNote:"Untuk tambah ramai staff sekaligus, tampal terus dalam Google Sheet (tab Staff: lajur ID, Nama, Jabatan).",
     setTitle:"Tetapan kata laluan", aPwLabel:"Kata laluan HR baru", aPwBtn:"Tukar kata laluan HR",
     kPwLabel:"PIN kantin baru", kPwBtn:"Tukar PIN kantin", resetPw:"Reset kata laluan", del:"Buang",
     curMonth:"Bulan semasa", counter:"Kaunter kantin", adminHr:"Admin HR",
     errStaff:"No. staff atau kata laluan salah.", errKantin:"PIN kantin salah.", errHr:"Kata laluan HR salah.",
     badQr:"QR tidak sah", notFound:id=>`No. staff "${id}" tiada dalam sistem.`,
     cooldown:s=>`Sudah diimbas sebentar tadi. Tunggu ${s} saat.`, empty:"Kupon bulan ini sudah habis.",
-    deducted:`Kupon ditolak (RM${HARGA}). Baki:`, left:"kupon lagi",
+    deducted:()=>`Kupon ditolak (RM${HARGA}). Baki:`, left:"kupon lagi",
     camNA:"Kamera tidak tersedia", camNAmsg:"Guna input manual.", camFail:"Kamera tidak dapat dibuka",
     camFailMsg:"Benarkan akses kamera, atau guna input manual.",
     noToday:"Belum ada transaksi hari ini.", noHist:"Belum ada kupon digunakan bulan ini.",
@@ -275,21 +292,23 @@ const I18N = {
     pwWrong:"Kata laluan semasa salah.", pwShort:"Kata laluan baru mesti sekurang-kurangnya 4 aksara.",
     pwMismatch:"Kata laluan baru tidak sama.", pwDone:"Kata laluan ditukar.",
     addNeed:"Isi no. staff dan nama.", addDup:id=>`No. staff ${id} sudah wujud.`,
-    addDone:n=>`${n} ditambah dengan ${KUPON_SEBULAN} kupon. Kata laluan asal: ${DEF_STAFF_PW}.`,
-    addNote:`Kata laluan asal staff baru ialah ${DEF_STAFF_PW}. Staff akan diminta menukarnya selepas log masuk.`,
-    cResetPw:id=>`Reset kata laluan ${id} kepada ${DEF_STAFF_PW}?`, aResetPw:n=>`Kata laluan ${n} kini ${DEF_STAFF_PW}.`,
+    addDone:n=>`${n} ditambah dengan ${KUPON_SEBULAN} kupon. Kata laluan asal: 1234.`,
+    addNote:"Kata laluan asal staff baru ialah 1234. Staff akan diminta menukarnya selepas log masuk.",
+    cResetPw:id=>`Reset kata laluan ${id} kepada 1234?`, aResetPw:n=>`Kata laluan ${n} kini 1234.`,
     cDel:id=>`Buang staff ${id}?`, cResetAll:"Reset baki semua staff ke 10 kupon?",
     aPwShort:"Kata laluan HR mesti sekurang-kurangnya 6 aksara.", aPwDone:"Kata laluan HR ditukar.",
     kPwBad:"PIN kantin mesti 4 hingga 6 digit nombor.", kPwDone:"PIN kantin ditukar.",
     csv:["No. Staff","Nama","Jabatan","Kupon Digunakan","Jumlah (RM)","Baki"], csvFile:"laporan-kupon",
     scanOk:"Imbasan berjaya", scanFail:"Imbasan gagal", nextScan:"Imbas seterusnya", doneScan:"Selesai",
+    processing:"Sedang diproses…",
+    netErr:"Tiada sambungan internet. Cuba lagi.", noApi:"Sistem belum disambung ke Google Sheets (API_URL belum diisi).",
+    sessionExp:"Sesi tamat. Sila log masuk semula.", serverErr:"Ralat pada server. Cuba lagi.", forbidden:"Tiada kebenaran.",
     locale:"ms-MY", other:"EN"
   },
   en: {
     appName:"Canteen Coupon System", logout:"Log out", tabHr:"HR", tabKantin:"Canteen", tabStaff:"Staff card",
     loginTitle:"Log in", roleStaff:"Staff", roleKantin:"Canteen", roleHr:"HR", staffNo:"Staff no.",
     pw:"Password", pinKantin:"Canteen PIN", pwHr:"HR password", loginBtn:"Log in",
-    demo:"Demo: staff <b>RC001</b> / <b>1234</b>, canteen PIN <b>0000</b>, HR <b>admin123</b>.",
     scanTitle:"Scan staff coupon", camOpen:"Open camera", camClose:"Close camera",
     camHint:"If the camera cannot open, enter the staff no. manually below.", deduct:"Use coupon",
     todayTitle:"Today's transactions", thTime:"Time", thStaff:"Staff", thBal:"Balance", thDate:"Date", thNo:"No.", thUsed:"Used",
@@ -300,13 +319,14 @@ const I18N = {
     addTitle:"Add staff", name:"Name", dept:"Department", addBtn:"Add staff", balTitle:"Staff balance this month",
     csvBtn:"Download report (CSV)", resetAllBtn:"Reset all to 10 coupons",
     resetNote:"Balances reset automatically to 10 coupons at the start of every month. Unused coupons do not carry over.",
+    bulkNote:"To add many staff at once, paste them directly into the Google Sheet (Staff tab: columns ID, Name, Department).",
     setTitle:"Password settings", aPwLabel:"New HR password", aPwBtn:"Change HR password",
     kPwLabel:"New canteen PIN", kPwBtn:"Change canteen PIN", resetPw:"Reset password", del:"Remove",
     curMonth:"Current month", counter:"Canteen counter", adminHr:"HR Admin",
     errStaff:"Wrong staff no. or password.", errKantin:"Wrong canteen PIN.", errHr:"Wrong HR password.",
     badQr:"Invalid QR", notFound:id=>`Staff no. "${id}" is not in the system.`,
     cooldown:s=>`Already scanned just now. Please wait ${s} seconds.`, empty:"No coupons left this month.",
-    deducted:`Coupon used (RM${HARGA}). Balance:`, left:"coupons left",
+    deducted:()=>`Coupon used (RM${HARGA}). Balance:`, left:"coupons left",
     camNA:"Camera not available", camNAmsg:"Use manual entry.", camFail:"Cannot open camera",
     camFailMsg:"Allow camera access, or use manual entry.",
     noToday:"No transactions today yet.", noHist:"No coupons used this month yet.",
@@ -314,158 +334,213 @@ const I18N = {
     pwWrong:"Current password is wrong.", pwShort:"New password must be at least 4 characters.",
     pwMismatch:"New passwords do not match.", pwDone:"Password changed.",
     addNeed:"Fill in staff no. and name.", addDup:id=>`Staff no. ${id} already exists.`,
-    addDone:n=>`${n} added with ${KUPON_SEBULAN} coupons. Default password: ${DEF_STAFF_PW}.`,
-    addNote:`New staff default password is ${DEF_STAFF_PW}. Staff will be asked to change it after logging in.`,
-    cResetPw:id=>`Reset password for ${id} to ${DEF_STAFF_PW}?`, aResetPw:n=>`${n}'s password is now ${DEF_STAFF_PW}.`,
+    addDone:n=>`${n} added with ${KUPON_SEBULAN} coupons. Default password: 1234.`,
+    addNote:"New staff default password is 1234. Staff will be asked to change it after logging in.",
+    cResetPw:id=>`Reset password for ${id} to 1234?`, aResetPw:n=>`${n}'s password is now 1234.`,
     cDel:id=>`Remove staff ${id}?`, cResetAll:"Reset all staff balances to 10 coupons?",
     aPwShort:"HR password must be at least 6 characters.", aPwDone:"HR password changed.",
     kPwBad:"Canteen PIN must be 4 to 6 digits.", kPwDone:"Canteen PIN changed.",
     csv:["Staff No.","Name","Department","Coupons Used","Total (RM)","Balance"], csvFile:"coupon-report",
     scanOk:"Scan successful", scanFail:"Scan failed", nextScan:"Scan next", doneScan:"Done",
+    processing:"Processing…",
+    netErr:"No internet connection. Please try again.", noApi:"System is not connected to Google Sheets yet (API_URL not set).",
+    sessionExp:"Session expired. Please log in again.", serverErr:"Server error. Please try again.", forbidden:"Not allowed.",
     locale:"en-MY", other:"BM"
   }
 };
 let lang = "ms";
 const T = k => I18N[lang][k];
-
-const bulanIni = () => new Date().toISOString().slice(0,7);
-const namaBulan = m => new Date(m+"-01").toLocaleDateString(T("locale"),{month:"long",year:"numeric"});
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-let db = null, scanner = null, lastScan = {}, session = null, loginRole = "staff";
+const bulanIni = () => new Date().toISOString().slice(0,7);
+const namaBulan = m => new Date(m+"-01").toLocaleDateString(T("locale"),{month:"long",year:"numeric"});
+const fTime = t => new Date(t).toLocaleTimeString(T("locale"),{hour:"2-digit",minute:"2-digit"});
+const fDate = t => new Date(t).toLocaleDateString(T("locale"),{day:"numeric",month:"short"});
 
-async function hash(t){
-  const txt = "roca-kupon:" + t;
-  if(window.crypto && crypto.subtle){
-    const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(txt));
-    return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
-  }
-  let h = 5381; for(const c of txt) h = ((h<<5)+h+c.charCodeAt(0))|0; return "f"+(h>>>0).toString(16);
-}
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ v===null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} }
+};
 
-const seed = () => ({
-  month: bulanIni(),
-  staff: [
-    {id:"RC001",name:"Ahmad Faiz",dept:"Production",baki:10},
-    {id:"RC002",name:"Nur Aina",dept:"Admin",baki:10},
-    {id:"RC003",name:"Rahim Uddin",dept:"Warehouse",baki:10},
-    {id:"RC004",name:"Siti Hajar",dept:"HR",baki:10},
-    {id:"RC005",name:"Ram Bahadur",dept:"Production",baki:10}
-  ],
-  log: []
-});
+let session = null, st = {}, card = null, scanner = null, loginRole = "staff";
+const apiReady = () => /^https:\/\/script\.google\.com\//.test(API_URL);
 
-async function getKey(k){
+/* ---------- Sambungan ke Google Sheets / Connection ---------- */
+async function api(action, data={}){
+  if(!apiReady()) throw {code:"noApi"};
+  let j;
   try{
-    if(window.storage){ const r = await window.storage.get(k); return r ? r.value : null; }
-    return localStorage.getItem(k);
-  }catch(e){ return null; }
+    const r = await fetch(API_URL,{method:"POST", body:JSON.stringify(Object.assign({action, token:session && session.token}, data))});
+    j = await r.json();
+  }catch(e){ throw {code:"net"}; }
+  if(!j.ok && j.code==="auth" && action!=="login"){ await forceLogout(); throw {code:"auth"}; }
+  return j;
 }
-async function setKey(k,v){
-  try{ if(window.storage) await window.storage.set(k,v); else localStorage.setItem(k,v); }
-  catch(e){ console.error("Simpan gagal / Save failed",e); }
+function errText(code){
+  const m = {net:"netErr",noApi:"noApi",auth:"sessionExp",pwWrong:"pwWrong",pwShort:"pwShort",need:"addNeed",
+             aPwShort:"aPwShort",kPwBad:"kPwBad",forbidden:"forbidden"};
+  return T(m[code] || "serverErr");
 }
-async function load(){
-  const v = await getKey(KEY);
-  try{ db = v ? JSON.parse(v) : seed(); }catch(e){ db = seed(); }
-  const l = await getKey(LANG_KEY); if(l==="en"||l==="ms") lang = l;
-  let changed = !v;
-  for(const s of db.staff){ if(!s.pw){ s.pw = await hash(DEF_STAFF_PW); s.def = true; changed = true; } }
-  if(!db.settings){ db.settings = {adminPw: await hash(DEF_ADMIN_PW), kantinPw: await hash(DEF_KANTIN_PW)}; changed = true; }
-  if(db.month !== bulanIni()){ db.staff.forEach(s=>s.baki=KUPON_SEBULAN); db.month = bulanIni(); changed = true; }
-  if(changed) await save();
+let busyN = 0;
+function busy(on){ busyN = Math.max(0, busyN + (on?1:-1)); $("busy").hidden = busyN===0; }
+async function run(fn, btn){
+  busy(true); if(btn) btn.disabled = true;
+  try{ return await fn(); }
+  catch(e){ toast(errText(e && e.code)); }
+  finally{ busy(false); if(btn) btn.disabled = false; }
 }
-const save = () => setKey(KEY, JSON.stringify(db));
+let toastT;
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,3500); }
 
-/* ---------- Terjemah UI / Translate UI ---------- */
+/* ---------- Bahasa / Language ---------- */
 function applyLang(){
-  document.documentElement.lang = lang==="ms" ? "ms" : "en";
+  document.documentElement.lang = lang;
   document.querySelectorAll("[data-i18n]").forEach(el=>el.textContent = T(el.dataset.i18n));
-  document.querySelectorAll("[data-i18n-html]").forEach(el=>el.innerHTML = T(el.dataset.i18nHtml));
   $("btnLang").textContent = T("other");
-  $("lPwLabel").textContent = loginRole==="kantin" ? T("pinKantin") : loginRole==="hr" ? T("pwHr") : T("pw");
+  setPwLabel();
   $("addMsg").textContent = T("addNote");
-  $("result").innerHTML = ""; $("loginErr").textContent = ""; $("pwMsg").textContent = ""; $("setMsg").textContent = "";
-  renderAll();
+  if(!apiReady()) $("loginErr").textContent = T("noApi");
+  renderHeader();
+  if(session){ renderLists(); renderTicket(); }
 }
-$("btnLang").onclick = async ()=>{ lang = lang==="ms" ? "en" : "ms"; await setKey(LANG_KEY, lang); applyLang(); };
+$("btnLang").onclick = ()=>{ lang = lang==="ms" ? "en" : "ms"; store.set(LANG_KEY, lang); applyLang(); };
+function setPwLabel(){ $("lPwLabel").textContent = loginRole==="kantin" ? T("pinKantin") : loginRole==="hr" ? T("pwHr") : T("pw"); }
 
 /* ---------- Log masuk / Login ---------- */
 document.querySelectorAll(".roles button").forEach(b=>b.onclick=()=>{
   loginRole = b.dataset.role;
   document.querySelectorAll(".roles button").forEach(x=>x.setAttribute("aria-pressed", x===b));
   $("fStaffId").hidden = loginRole!=="staff";
-  $("lPwLabel").textContent = loginRole==="kantin" ? T("pinKantin") : loginRole==="hr" ? T("pwHr") : T("pw");
   $("lPw").inputMode = loginRole==="kantin" ? "numeric" : "text";
-  $("loginErr").textContent = ""; $("lPw").value = "";
+  setPwLabel(); $("loginErr").textContent = ""; $("lPw").value = "";
 });
-$("btnLogin").onclick = async ()=>{
-  const pw = await hash($("lPw").value), err = $("loginErr");
-  if(loginRole==="staff"){
-    const s = db.staff.find(x=>x.id===$("lId").value.trim().toUpperCase());
-    if(!s || s.pw!==pw) return err.textContent = T("errStaff");
-    session = {role:"staff", id:s.id};
-  } else if(loginRole==="kantin"){
-    if(pw!==db.settings.kantinPw) return err.textContent = T("errKantin");
-    session = {role:"kantin"};
-  } else {
-    if(pw!==db.settings.adminPw) return err.textContent = T("errHr");
-    session = {role:"hr"};
-  }
-  $("lPw").value = ""; err.textContent = "";
-  enterApp();
-};
+$("btnLogin").onclick = ()=>run(async ()=>{
+  $("loginErr").textContent = "";
+  const j = await api("login",{role:loginRole, id:$("lId").value, pw:$("lPw").value});
+  if(!j.ok){ $("loginErr").textContent = loginRole==="staff" ? T("errStaff") : loginRole==="kantin" ? T("errKantin") : T("errHr"); return; }
+  session = {token:j.token, role:j.role, id:j.id||"", name:j.name||""};
+  store.set(SESSION_KEY, JSON.stringify(session));
+  $("lPw").value = "";
+  await enterApp();
+}, $("btnLogin"));
 $("lPw").onkeydown = e=>{ if(e.key==="Enter") $("btnLogin").click(); };
-$("btnLogout").onclick = async ()=>{
-  await stopCam(); closePopup();
-  session = null; $("result").innerHTML = "";
-  showOnly("login"); $("nav").hidden = true; $("btnLogout").hidden = true; renderHeader();
-};
+$("btnLogout").onclick = ()=>forceLogout();
 
-function enterApp(){
+async function forceLogout(){
+  await stopCam(); closePopup();
+  session = null; st = {}; card = null; store.set(SESSION_KEY, null);
+  $("result").innerHTML = ""; $("nav").hidden = true; $("btnLogout").hidden = true;
+  showOnly("login"); renderHeader();
+}
+async function enterApp(){
   const tabs = {staff:["staff"], kantin:["kantin"], hr:["hr","kantin","staff"]}[session.role];
   document.querySelectorAll("nav button").forEach(b=>b.hidden = !tabs.includes(b.dataset.tab));
   $("nav").hidden = tabs.length<2;
   $("btnLogout").hidden = false;
   $("pickWrap").hidden = session.role!=="hr";
   $("pwPanel").hidden = session.role!=="staff";
-  selectTab(tabs[0]); renderAll();
+  selectTab(tabs[0]); renderHeader();
+  await refresh();
 }
 function showOnly(name){ document.querySelectorAll("main section").forEach(s=>s.hidden = s.id!=="tab-"+name); }
 function selectTab(name){
   document.querySelectorAll("nav button").forEach(x=>x.setAttribute("aria-selected", x.dataset.tab===name));
   showOnly(name);
 }
-document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>selectTab(b.dataset.tab));
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{ selectTab(b.dataset.tab); run(refresh); });
 
+/* ---------- Data ---------- */
+async function refresh(){
+  if(!session) return;
+  const j = await api("state");
+  if(!j.ok) throw j;
+  st = j; HARGA = j.harga || HARGA; KUPON_SEBULAN = j.kupon || KUPON_SEBULAN;
+  renderHeader(); renderLists();
+  if(session.role!=="kantin") await loadCard();
+}
+async function loadCard(){
+  const id = session.role==="staff" ? session.id : ($("pickStaff").value || ((st.staff||[])[0]||{}).id);
+  if(!id){ card = null; renderTicket(); return; }
+  const j = await api("card",{id});
+  card = j.ok ? j.card : null; renderTicket();
+}
+$("pickStaff").onchange = ()=>run(loadCard);
+
+/* ---------- Paparan / Rendering ---------- */
 function renderHeader(){
-  let who = T("curMonth")+": "+namaBulan(db.month);
-  if(session?.role==="staff"){ const s = db.staff.find(x=>x.id===session.id); if(s) who = s.name; }
-  if(session?.role==="kantin") who = T("counter")+" · "+namaBulan(db.month);
-  if(session?.role==="hr") who = T("adminHr")+" · "+namaBulan(db.month);
+  const m = namaBulan(st.month || bulanIni());
+  let who = T("curMonth")+": "+m;
+  if(session?.role==="staff") who = session.name || session.id;
+  if(session?.role==="kantin") who = T("counter")+" · "+m;
+  if(session?.role==="hr") who = T("adminHr")+" · "+m;
   $("whoLabel").textContent = who;
+}
+function renderLists(){
+  if(!session) return;
+  const today = st.today || [];
+  $("todayLog").innerHTML = today.map(l=>
+    `<tr><td>${fTime(l.t)}</td><td>${esc(l.name)}</td><td class="num">${l.baki}</td></tr>`
+  ).join("") || `<tr><td colspan="3" class="note">${esc(T("noToday"))}</td></tr>`;
+
+  if(session.role==="hr"){
+    const staff = st.staff || [], sel = $("pickStaff"), cur = sel.value;
+    sel.innerHTML = staff.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.id)})</option>`).join("");
+    if(cur && staff.some(s=>s.id===cur)) sel.value = cur;
+    const used = st.used || 0;
+    $("sUsed").textContent = used; $("sRM").textContent = "RM"+(used*HARGA); $("sStaff").textContent = staff.length;
+    $("staffTable").innerHTML = staff.map(s=>
+      `<tr><td>${esc(s.id)}</td><td>${esc(s.name)}<br><span class="note">${esc(s.dept)}</span></td><td class="num">${KUPON_SEBULAN-s.baki}</td>
+       <td class="num"><span class="pill ${s.baki<=2?"low":"ok"}">${s.baki}</span></td>
+       <td class="num"><div class="actions" style="justify-content:flex-end;margin:0">
+         <button class="btn alt sm" data-resetpw="${esc(s.id)}">${esc(T("resetPw"))}</button>
+         <button class="btn warn sm" data-del="${esc(s.id)}">${esc(T("del"))}</button></div></td></tr>`
+    ).join("");
+  }
+}
+function renderTicket(){
+  const q = $("qrBox"); q.innerHTML = "";
+  if(!card){ $("tName").textContent = ""; $("tInfo").textContent = ""; $("stubs").innerHTML = ""; $("tBaki").textContent = ""; $("histLog").innerHTML = ""; $("defBanner").hidden = true; return; }
+  const s = card;
+  $("tName").textContent = s.name; $("tInfo").textContent = `${s.id} · ${s.dept}`;
+  if(typeof QRCode!=="undefined") new QRCode(q,{text:"ROCAKUPON:"+s.id,width:120,height:120});
+  else q.textContent = s.id;
+  const used = KUPON_SEBULAN - s.baki;
+  $("stubs").innerHTML = Array.from({length:KUPON_SEBULAN},(_,i)=>
+    `<div class="stub ${i<used?"used":""}">${i<used?"":"RM"+HARGA}</div>`).join("");
+  $("tBaki").textContent = T("bal")(s.baki, namaBulan(st.month || bulanIni()));
+  $("histLog").innerHTML = (s.history||[]).map(l=>
+    `<tr><td>${fDate(l.t)}</td><td>${fTime(l.t)}</td><td class="num">${l.baki}</td></tr>`
+  ).join("") || `<tr><td colspan="3" class="note">${esc(T("noHist"))}</td></tr>`;
+  $("defBanner").hidden = !(session && session.role==="staff" && s.def);
 }
 
 /* ---------- Tolak kupon / Use coupon ---------- */
 async function tolakKupon(raw){
   if(!session || !["kantin","hr"].includes(session.role)) return;
   const id = raw.trim().toUpperCase().replace(/^ROCAKUPON:/,"");
-  const now = Date.now();
-  const s = db.staff.find(x=>x.id===id);
-  if(!s) return result("bad",T("badQr"),T("notFound")(id));
-  if(lastScan[id] && now-lastScan[id] < COOLDOWN_SAAT*1000)
-    return result("bad",s.name,T("cooldown")(Math.ceil((COOLDOWN_SAAT*1000-(now-lastScan[id]))/1000)));
-  if(s.baki<=0) return result("bad",s.name,T("empty"));
-  s.baki--; lastScan[id]=now;
-  db.log.push({id:s.id,name:s.name,t:new Date().toISOString(),m:db.month,baki:s.baki});
-  await save();
-  result("ok",s.name,T("deducted"),s.baki);
-  renderAll();
+  openPopup("wait", T("processing"), id);
+  try{
+    const j = await api("deduct",{id});
+    if(j.ok) result("ok", j.name, T("deducted")(), j.baki);
+    else if(j.code==="notfound") result("bad", T("badQr"), T("notFound")(id));
+    else if(j.code==="cooldown") result("bad", j.name, T("cooldown")(j.wait));
+    else if(j.code==="empty") result("bad", j.name, T("empty"));
+    else result("bad", T("scanFail"), errText(j.code));
+    refresh().catch(()=>{});
+  }catch(e){
+    if(e && e.code==="auth"){ closePopup(); toast(T("sessionExp")); }
+    else result("bad", T("scanFail"), errText(e && e.code));
+  }
 }
 function result(type,title,msg,big){
   show($("result"),type,title,msg,big);
   openPopup(type,title,msg,big);
 }
+function show(box,type,title,msg,big){
+  box.innerHTML = `<div class="result ${type}"><b>${esc(title)}</b><div>${esc(msg)}</div>${big!==undefined?`<div class="big">${big}</div><div>${esc(T("left"))}</div>`:""}</div>`;
+}
+$("btnManual").onclick = ()=>{ unlockAudio(); const v=$("manualId"); if(v.value.trim()) tolakKupon(v.value); v.value=""; };
+$("manualId").onkeydown = e=>{ if(e.key==="Enter") $("btnManual").click(); };
 
 /* Pop-up + bunyi + getaran / Pop-up + sound + vibration */
 let actx = null;
@@ -489,25 +564,21 @@ function beep(ok){
 function openPopup(type,title,msg,big){
   const p = $("popup");
   p.className = "popup "+type;
-  $("popIcon").textContent = type==="ok" ? "✓" : "✕";
-  $("popStatus").textContent = type==="ok" ? T("scanOk") : T("scanFail");
+  $("popIcon").textContent = type==="ok" ? "✓" : type==="bad" ? "✕" : "";
+  $("popStatus").textContent = type==="ok" ? T("scanOk") : type==="bad" ? T("scanFail") : "";
   $("popTitle").textContent = title;
-  $("popMsg").textContent = msg;
+  $("popMsg").textContent = msg || "";
   $("popBig").textContent = big!==undefined ? big : "";
   $("popLeft").textContent = big!==undefined ? T("left") : "";
   p.hidden = false;
-  beep(type==="ok");
-  $("btnNext").focus();
+  if(type!=="wait"){ beep(type==="ok"); $("btnNext").focus(); }
 }
 function closePopup(){ $("popup").hidden = true; }
 $("btnNext").onclick = ()=>{ unlockAudio(); closePopup(); startCam(); };
-$("btnDone").onclick = ()=>{ closePopup(); };
-document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("popup").hidden) closePopup(); });
-function show(box,type,title,msg,big){
-  box.innerHTML = `<div class="result ${type}"><b>${esc(title)}</b><div>${esc(msg)}</div>${big!==undefined?`<div class="big">${big}</div><div>${esc(T("left"))}</div>`:""}</div>`;
-}
-$("btnManual").onclick = ()=>{ unlockAudio(); const v=$("manualId"); if(v.value) tolakKupon(v.value); v.value=""; };
-$("manualId").onkeydown = e=>{ if(e.key==="Enter") $("btnManual").click(); };
+$("btnDone").onclick = ()=>closePopup();
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("popup").hidden && !$("popup").classList.contains("wait")) closePopup(); });
+
+/* Kamera / Camera */
 let scanBusy = false;
 async function startCam(){
   if(typeof Html5Qrcode==="undefined") return show($("result"),"bad",T("camNA"),T("camNAmsg"));
@@ -516,121 +587,81 @@ async function startCam(){
   scanner = new Html5Qrcode("reader"); scanBusy = false;
   try{
     await scanner.start({facingMode:"environment"},{fps:10,qrbox:220}, async txt=>{
-      if(scanBusy) return;          // elak imbasan berganda / avoid double scan
+      if(scanBusy) return;
       scanBusy = true;
-      await stopCam();              // kamera tutup automatik / camera turns off
+      await stopCam();
       await tolakKupon(txt);
     });
     $("btnCam").hidden=true; $("btnCamStop").hidden=false;
   }catch(e){ scanner=null; show($("result"),"bad",T("camFail"),T("camFailMsg")); }
 }
-$("btnCam").onclick = ()=>{ unlockAudio(); startCam(); };
 async function stopCam(){ if(scanner){ try{ await scanner.stop(); }catch(e){} scanner=null; } $("btnCam").hidden=false; $("btnCamStop").hidden=true; }
+$("btnCam").onclick = ()=>{ unlockAudio(); startCam(); };
 $("btnCamStop").onclick = stopCam;
 
-/* ---------- Render ---------- */
-function renderAll(){
-  renderHeader();
-  if(!session) return;
-  const today = new Date().toISOString().slice(0,10);
-  $("todayLog").innerHTML = db.log.filter(l=>l.t.startsWith(today)).reverse().map(l=>
-    `<tr><td>${new Date(l.t).toLocaleTimeString(T("locale"),{hour:"2-digit",minute:"2-digit"})}</td><td>${esc(l.name)}</td><td class="num">${l.baki}</td></tr>`
-  ).join("") || `<tr><td colspan="3" class="note">${esc(T("noToday"))}</td></tr>`;
-
-  const sel = $("pickStaff"), cur = sel.value;
-  sel.innerHTML = db.staff.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.id)})</option>`).join("");
-  if(cur) sel.value = cur;
-  renderTicket();
-
-  if(session.role==="hr"){
-    const used = db.log.filter(l=>l.m===db.month).length;
-    $("sUsed").textContent = used; $("sRM").textContent = "RM"+(used*HARGA); $("sStaff").textContent = db.staff.length;
-    $("staffTable").innerHTML = db.staff.map(s=>
-      `<tr><td>${esc(s.id)}</td><td>${esc(s.name)}<br><span class="note">${esc(s.dept)}</span></td><td class="num">${KUPON_SEBULAN-s.baki}</td>
-       <td class="num"><span class="pill ${s.baki<=2?"low":"ok"}">${s.baki}</span></td>
-       <td class="num"><div class="actions" style="justify-content:flex-end;margin:0">
-         <button class="btn alt sm" data-resetpw="${esc(s.id)}">${esc(T("resetPw"))}</button>
-         <button class="btn warn sm" data-del="${esc(s.id)}">${esc(T("del"))}</button></div></td></tr>`
-    ).join("");
-  }
-}
-function renderTicket(){
-  const id = session.role==="staff" ? session.id : $("pickStaff").value;
-  const s = db.staff.find(x=>x.id===id) || db.staff[0];
-  if(!s) return;
-  $("tName").textContent = s.name; $("tInfo").textContent = `${s.id} · ${s.dept}`;
-  const q = $("qrBox"); q.innerHTML="";
-  if(typeof QRCode!=="undefined") new QRCode(q,{text:"ROCAKUPON:"+s.id,width:120,height:120});
-  else q.textContent = s.id;
-  $("stubs").innerHTML = Array.from({length:KUPON_SEBULAN},(_,i)=>
-    `<div class="stub ${i<KUPON_SEBULAN-s.baki?"used":""}">${i<KUPON_SEBULAN-s.baki?"":"RM"+HARGA}</div>`).join("");
-  $("tBaki").textContent = T("bal")(s.baki, namaBulan(db.month));
-  $("histLog").innerHTML = db.log.filter(l=>l.id===s.id && l.m===db.month).reverse().map(l=>{
-    const d = new Date(l.t);
-    return `<tr><td>${d.toLocaleDateString(T("locale"),{day:"numeric",month:"short"})}</td><td>${d.toLocaleTimeString(T("locale"),{hour:"2-digit",minute:"2-digit"})}</td><td class="num">${l.baki}</td></tr>`;
-  }).join("") || `<tr><td colspan="3" class="note">${esc(T("noHist"))}</td></tr>`;
-  $("defBanner").hidden = !(session.role==="staff" && s.def);
-}
-$("pickStaff").onchange = renderTicket;
-
 /* ---------- Staff tukar kata laluan / Change password ---------- */
-$("btnPw").onclick = async ()=>{
-  const s = db.staff.find(x=>x.id===session.id), msg = $("pwMsg");
-  msg.className = "err";
-  if(await hash($("pOld").value) !== s.pw) return msg.textContent = T("pwWrong");
+$("btnPw").onclick = ()=>run(async ()=>{
+  const msg = $("pwMsg"); msg.className = "err"; msg.textContent = "";
   if($("pNew").value.length < 4) return msg.textContent = T("pwShort");
   if($("pNew").value !== $("pNew2").value) return msg.textContent = T("pwMismatch");
-  s.pw = await hash($("pNew").value); s.def = false; await save();
+  const j = await api("changePw",{old:$("pOld").value, pw:$("pNew").value});
+  if(!j.ok) return msg.textContent = errText(j.code);
   $("pOld").value = $("pNew").value = $("pNew2").value = "";
   msg.className = "err okmsg"; msg.textContent = T("pwDone");
-  renderTicket();
-};
+  await loadCard();
+}, $("btnPw"));
 
 /* ---------- HR ---------- */
-$("btnAdd").onclick = async ()=>{
-  const id=$("nId").value.trim().toUpperCase(), name=$("nName").value.trim(), dept=$("nDept").value.trim()||"-";
-  if(!id||!name) return $("addMsg").textContent=T("addNeed");
-  if(db.staff.some(s=>s.id===id)) return $("addMsg").textContent=T("addDup")(id);
-  db.staff.push({id,name,dept,baki:KUPON_SEBULAN,pw:await hash(DEF_STAFF_PW),def:true}); await save();
-  $("addMsg").textContent=T("addDone")(name);
-  $("nId").value=$("nName").value=$("nDept").value="";
-  renderAll();
-};
-$("staffTable").onclick = async e=>{
+$("btnAdd").onclick = ()=>run(async ()=>{
+  const id=$("nId").value.trim().toUpperCase(), name=$("nName").value.trim(), dept=$("nDept").value.trim();
+  if(!id||!name) return $("addMsg").textContent = T("addNeed");
+  const j = await api("addStaff",{id,name,dept});
+  if(!j.ok) return $("addMsg").textContent = j.code==="dup" ? T("addDup")(id) : errText(j.code);
+  $("addMsg").textContent = T("addDone")(name);
+  $("nId").value = $("nName").value = $("nDept").value = "";
+  await refresh();
+}, $("btnAdd"));
+$("staffTable").onclick = e=>{
   const r = e.target.dataset.resetpw, d = e.target.dataset.del;
-  if(r){
-    if(!confirm(T("cResetPw")(r))) return;
-    const s = db.staff.find(x=>x.id===r); s.pw = await hash(DEF_STAFF_PW); s.def = true; await save();
-    alert(T("aResetPw")(s.name));
-  }
-  if(d){
-    if(!confirm(T("cDel")(d))) return;
-    db.staff = db.staff.filter(s=>s.id!==d); await save(); renderAll();
-  }
+  if(r && confirm(T("cResetPw")(r))) run(async ()=>{
+    const j = await api("resetPw",{id:r});
+    if(!j.ok) return toast(errText(j.code));
+    toast(T("aResetPw")(j.name));
+  });
+  if(d && confirm(T("cDel")(d))) run(async ()=>{
+    const j = await api("removeStaff",{id:d});
+    if(!j.ok) return toast(errText(j.code));
+    await refresh();
+  });
 };
-$("btnReset").onclick = async ()=>{
-  if(!confirm(T("cResetAll"))) return;
-  db.staff.forEach(s=>s.baki=KUPON_SEBULAN); await save(); renderAll();
-};
-$("btnAPw").onclick = async ()=>{
-  const v = $("aPw").value, m = $("setMsg"); m.className="err";
-  if(v.length<6) return m.textContent = T("aPwShort");
-  db.settings.adminPw = await hash(v); await save(); $("aPw").value="";
-  m.className="err okmsg"; m.textContent = T("aPwDone");
-};
-$("btnKPw").onclick = async ()=>{
-  const v = $("kPw").value, m = $("setMsg"); m.className="err";
-  if(!/^\d{4,6}$/.test(v)) return m.textContent = T("kPwBad");
-  db.settings.kantinPw = await hash(v); await save(); $("kPw").value="";
-  m.className="err okmsg"; m.textContent = T("kPwDone");
-};
+$("btnReset").onclick = ()=>{ if(confirm(T("cResetAll"))) run(async ()=>{ await api("resetAll"); await refresh(); }, $("btnReset")); };
+$("btnAPw").onclick = ()=>run(async ()=>{
+  const m=$("setMsg"); m.className="err";
+  const j = await api("setAdminPw",{pw:$("aPw").value});
+  if(!j.ok) return m.textContent = errText(j.code);
+  $("aPw").value=""; m.className="err okmsg"; m.textContent = T("aPwDone");
+}, $("btnAPw"));
+$("btnKPw").onclick = ()=>run(async ()=>{
+  const m=$("setMsg"); m.className="err";
+  const j = await api("setKantinPw",{pw:$("kPw").value});
+  if(!j.ok) return m.textContent = errText(j.code);
+  $("kPw").value=""; m.className="err okmsg"; m.textContent = T("kPwDone");
+}, $("btnKPw"));
 $("btnCsv").onclick = ()=>{
-  const rows = [T("csv")].concat(db.staff.map(s=>[s.id,s.name,s.dept,KUPON_SEBULAN-s.baki,(KUPON_SEBULAN-s.baki)*HARGA,s.baki]));
-  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const rows = [T("csv")].concat((st.staff||[]).map(s=>[s.id,s.name,s.dept,KUPON_SEBULAN-s.baki,(KUPON_SEBULAN-s.baki)*HARGA,s.baki]));
+  const csv = "\uFEFF" + rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-  a.download = `${T("csvFile")}-${db.month}.csv`; a.click();
+  a.download = `${T("csvFile")}-${st.month || bulanIni()}.csv`; a.click();
 };
 
-load().then(()=>{ applyLang(); showOnly("login"); });
+/* ---------- Mula / Start ---------- */
+(function init(){
+  const l = store.get(LANG_KEY); if(l==="en"||l==="ms") lang = l;
+  showOnly("login"); applyLang();
+  try{
+    const s = JSON.parse(store.get(SESSION_KEY) || "null");
+    if(s && s.token){ session = s; run(enterApp); }
+  }catch(e){}
+})();
 </script>
